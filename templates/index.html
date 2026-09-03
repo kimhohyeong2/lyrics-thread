@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Lyrics Thread</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">LYRICS THEORY</p>
+        <h1>Lyrics Thread</h1>
+        <p class="sub">가사를 단어가 아니라 <strong>문장 전개 구조</strong>로 비교한다.</p>
+      </div>
+      <div class="badge">MVP</div>
+    </header>
+
+    <section class="grid">
+      <article class="panel editor">
+        <h2>가사 분석</h2>
+        <div class="meta">
+          <input id="artist" placeholder="아티스트">
+          <input id="song" placeholder="곡명">
+          <input id="section" placeholder="섹션 (예: Chorus)">
+          <select id="language">
+            <option value="">자동 감지</option>
+            <option value="ko">한국어</option>
+            <option value="ja">日本語</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+        <textarea id="lyrics" spellcheck="false" placeholder="한 줄에 한 문장씩 가사를 입력해봐.
+
+예:
+네가 돌아오면 나는 기다릴게
+영원할 거라고 생각했지만 너는 떠났어"></textarea>
+        <div class="actions">
+          <button id="analyze">분석</button>
+          <button id="save" class="secondary">DB에 저장</button>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <h2>Thread</h2>
+          <span id="count">0 lines</span>
+        </div>
+        <div id="results" class="results empty">분석 결과가 여기에 표시된다.</div>
+      </article>
+    </section>
+
+    <section class="panel search-panel">
+      <div>
+        <h2>같은 Thread 찾기</h2>
+        <p>문장 하나를 넣으면 동일한 문장 전개 구조를 가진 저장된 가사를 찾는다.</p>
+      </div>
+      <div class="search-row">
+        <input id="query" placeholder="예: 네가 웃으면 나는 노래할게">
+        <button id="search">검색</button>
+      </div>
+      <div id="searchResults" class="search-results"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Thread 통계</h2>
+        <button id="refreshStats" class="ghost">새로고침</button>
+      </div>
+      <div id="stats" class="stats"></div>
+    </section>
+  </main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  })[c]);
+}
+
+function renderRows(rows) {
+  $("count").textContent = `${rows.length} lines`;
+  if (!rows.length) {
+    $("results").className = "results empty";
+    $("results").textContent = "분석할 가사가 없다.";
+    return;
+  }
+  $("results").className = "results";
+  $("results").innerHTML = rows.map(row => `
+    <div class="thread-row ${row.pattern_id ? "" : "unmatched"}">
+      <div class="line-no">${row.line_no}</div>
+      <div class="thread-main">
+        <div class="lyric">${esc(row.text)}</div>
+        <div class="thread-meta">
+          <span class="label">${esc(row.label)}</span>
+          ${row.template ? `<span>${esc(row.template)}</span>` : ""}
+          ${row.function ? `<span>${esc(row.function)}</span>` : ""}
+        </div>
+      </div>
+    </div>
+  `).join("");
+}
+
+async function analyze() {
+  const res = await fetch("/api/analyze", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({
+      lyrics:$("lyrics").value,
+      language:$("language").value
+    })
+  });
+  renderRows(await res.json());
+}
+
+async function save() {
+  const res = await fetch("/api/save", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({
+      artist:$("artist").value,
+      song:$("song").value,
+      section:$("section").value,
+      lyrics:$("lyrics").value,
+      language:$("language").value
+    })
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.error || "저장 실패");
+    return;
+  }
+  alert(`${data.saved}개 행 저장됨`);
+  refreshStats();
+}
+
+async function searchThread() {
+  const q = $("query").value.trim();
+  if (!q) return;
+  const res = await fetch(`/api/search?text=${encodeURIComponent(q)}`);
+  const rows = await res.json();
+  $("searchResults").innerHTML = rows.length ? rows.map(row => `
+    <div class="search-item">
+      <div>
+        <strong>${esc(row.song)}</strong>
+        <span>${esc(row.artist)}</span>
+      </div>
+      <div class="lyric">${esc(row.text)}</div>
+      <div class="thread-meta">
+        <span class="label">${esc(row.label)}</span>
+        <span>${esc(row.section)} · ${row.line_no}행</span>
+      </div>
+    </div>
+  `).join("") : `<div class="empty">같은 Thread가 아직 저장되어 있지 않다.</div>`;
+}
+
+async function refreshStats() {
+  const res = await fetch("/api/stats");
+  const rows = await res.json();
+  $("stats").innerHTML = rows.length ? rows.map(row => `
+    <div class="stat">
+      <div>
+        <strong>${esc(row.label)}</strong>
+        <span>${esc(row.template)}</span>
+      </div>
+      <b>${row.count}</b>
+    </div>
+  `).join("") : `<div class="empty">저장된 Thread가 없다.</div>`;
+}
+
+$("analyze").addEventListener("click", analyze);
+$("save").addEventListener("click", save);
+$("search").addEventListener("click", searchThread);
+$("refreshStats").addEventListener("click", refreshStats);
+refreshStats();
+</script>
+</body>
+</html>

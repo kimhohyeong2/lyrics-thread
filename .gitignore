@@ -1,0 +1,5 @@
+.venv/
+__pycache__/
+*.pyc
+lyrics_thread.db
+.DS_Store
